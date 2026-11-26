@@ -1,7 +1,10 @@
-import {seed} from './data.js?v=4';
-import {read,write} from './storage.js?v=4';
-import {uid,copy,startSession,swapExercise,moveEntry,previousSets,counts,finishSession,safeVideo,validBackup} from './model.js?v=4';
+import * as microsoft from './microsoft.js?v=6';
+import {GROUPS,shared,equivalent,isDefaultData,newReplica,trackChanges,materialize,mergeReplicas,resolveConflicts,validReplica} from './sync-model.js?v=6';
+import {seed} from './data.js?v=6';
+import {read,readSync,write} from './storage.js?v=6';
+import {uid,copy,startSession,swapExercise,moveEntry,previousSets,counts,finishSession,safeVideo,validBackup} from './model.js?v=6';
 let appRegistration,updateAvailable=false;
+let syncMeta=null,mirror=null,syncTimer,syncBusy=false,syncState='syncNotConnected',authError='',pendingMerge=null,appLockRelease;
 let dict={},data,view={page:'home'},timerInterval,audioContext,writeQueue=Promise.resolve(),saveFailed=false;
 const app=document.querySelector('#app'),modal=document.querySelector('#modal');
 const t=k=>dict[k]??k;
@@ -20,15 +23,25 @@ const restLabel=e=>`${e.restMin/60}${e.restMax!==e.restMin?'–'+e.restMax/60:''
 const weightLabel=e=>e.weightMode==='bodyweight'?t('bodyweight'):e.weightMode==='assisted'?t('assisted'):t('weight')+(e.weightMode==='each'?' · '+t('eachShort'):'');
 const result=(s,e)=>`${e.weightMode==='bodyweight'?t('bodyweightShort'):`${s.weight??'—'} kg${e.weightMode==='each'?' '+t('eachShort'):e.weightMode==='assisted'?' '+t('assistShort'):''}`} × ${s.reps??'—'}`;
 function toast(message){const node=document.querySelector('#toast');node.textContent=message;node.classList.add('show');clearTimeout(toast.timeout);toast.timeout=setTimeout(()=>node.classList.remove('show'),4500);}
-function persist(){const snapshot=copy(data);writeQueue=writeQueue.catch(()=>{}).then(()=>write(snapshot)).then(()=>{saveFailed=false;}).catch(()=>{saveFailed=true;toast(t('saveError'));document.querySelector('#storage-status')?.classList.add('error');});return writeQueue;}
+function persist(){
+ let sharedChanged=false;
+ if(syncMeta&&microsoft.account()?.homeAccountId===syncMeta.owner){
+  sharedChanged=!GROUPS.every(g=>equivalent(mirror?.[g],data[g]));
+  if(sharedChanged){pendingMerge=null;if(!syncMeta.initialized&&syncMeta.pristine){trackChanges(syncMeta.replica,null,data);syncMeta.pristine=false;}else trackChanges(syncMeta.replica,mirror,data);mirror=shared(data);syncState='syncPending';}
+ }
+ const snapshot=copy(data),meta=copy(syncMeta);writeQueue=writeQueue.catch(()=>{}).then(()=>write(snapshot,meta)).then(()=>{saveFailed=false;}).catch(()=>{saveFailed=true;toast(t('saveError'));document.querySelector('#storage-status')?.classList.add('error');});
+ if(sharedChanged&&!data.active)scheduleSync();
+ return writeQueue;
+}
 function go(page,extra={}){view={page,...extra};render();window.scrollTo(0,0);}
 function show(content){modal.innerHTML=`<div class="dialog-top">${button(icon('close'),'close',`aria-label="${t('close')}"`,'icon-btn')}</div>${content}`;modal.showModal();modal.querySelector('input:not([type=checkbox]),select,button.primary')?.focus();}
 const pageTitle=(eyebrow,title,desc,actions='')=>`<section class="page-heading"><div><p class="eyebrow">${eyebrow}</p><h1>${title}</h1>${desc?`<p class="muted">${desc}</p>`:''}</div>${actions}</section>`;
 function render(){
 renderUpdateNotice();
+if(!microsoft.account()||accountMismatch()){renderSignIn();return;}
 if(view.page==='session'&&data.active){app.innerHTML=`<main class="session-shell">${sessionPage()}</main>`;updateTimer();return;}
 const selected=view.page==='plan'?'plans':view.page==='session'?'home':view.page;
-app.innerHTML=`<aside class="sidebar"><a class="brand" href="#" data-action="nav" data-page="home"><span class="brandmark">K<span>.</span></span><span>Kudazo<strong>FITNESS</strong></span></a><nav aria-label="Main">${['home','plans','history','settings'].map((p,i)=>button(icon(p)+`<span>${t(['navHome','navPlans','navHistory','navSettings'][i])}</span>`,'nav',`data-page="${p}" ${selected===p?'aria-current="page"':''}`,selected===p?'nav-item active':'nav-item')).join('')}</nav><div class="sidebar-foot"><div class="avatar">P</div><div>${t('personalEdition')}<small id="storage-status">${t(navigator.onLine?'online':'offline')}</small></div></div></aside><div class="workspace"><header class="topbar"><span class="mobile-brand">Kudazo<span> / Fitness</span></span><span class="desktop-label">${t('personal')}</span><span class="device-status"><i></i>${t(navigator.onLine?'online':'offline')}</span></header><main id="main">${view.page==='home'?home():view.page==='plans'?plans():view.page==='plan'?planPage():view.page==='session'?sessionPage():view.page==='history'?historyPage():settingsPage()}</main></div>`;
+app.innerHTML=`<aside class="sidebar"><a class="brand" href="#" data-action="nav" data-page="home"><span class="brandmark">K<span>.</span></span><span>Kudazo<strong>FITNESS</strong></span></a><nav aria-label="Main">${['home','plans','history','settings'].map((p,i)=>button(icon(p)+`<span>${t(['navHome','navPlans','navHistory','navSettings'][i])}</span>`,'nav',`data-page="${p}" ${selected===p?'aria-current="page"':''}`,selected===p?'nav-item active':'nav-item')).join('')}</nav><div class="sidebar-foot"><div class="avatar">P</div><div>${esc(microsoft.account()?.name||t('personalEdition'))}<small id="storage-status">${t(syncState)}</small></div></div></aside><div class="workspace"><header class="topbar"><span class="mobile-brand">Kudazo<span> / Fitness</span></span><span class="desktop-label">${t('personal')}</span><span class="device-status"><i></i>${t(navigator.onLine?syncState:'offline')}</span></header><main id="main">${view.page==='home'?home():view.page==='plans'?plans():view.page==='plan'?planPage():view.page==='session'?sessionPage():view.page==='history'?historyPage():settingsPage()}</main></div>`;
 updateTimer();if(view.page==='session'&&data.active&&!data.active.currentId&&data.active.entries.length){data.active.currentId=data.active.entries[0].id;render();}
 }
 function planCard(p,i){return `<article class="plan-card"><div class="plan-art art-${i%3}"><span>${p.name.includes('Upper')?'UPPER<br>LOWER':p.name.includes('Push')?'PUSH<br>PULL / LEGS':esc(p.name)}</span>${icon('plans')}</div><div class="card-body"><p class="eyebrow">${p.days.length} ${t('days')}</p><h3>${esc(p.name)}</h3><p class="muted small">${p.days.reduce((s,d)=>s+d.items.length,0)} ${t('exercises')}</p>${button(t('chooseDay'),'open-plan',`data-id="${p.id}"`,'outline full')}</div></article>`;}
@@ -44,7 +57,7 @@ return `<section class="focus-exercise"><div class="focus-toolbar">${button(icon
 function exerciseOptions(){const e=current(),old=previousSets(data.history,e.exerciseId,e.weightMode);show(`<h2>${esc(e.name)}</h2><div class="option-buttons">${button(icon('swap')+t('alternative'),'alternatives','','outline full')}${button(t('doLater'),'later',`data-id="${e.id}"`,'outline full')}${button(t(e.sets.some(z=>z.skipped)?'restore':'skipExercise'),'skip-exercise','','outline full')}${e.video?`<a href="${esc(e.video)}" class="button outline full" target="_blank" rel="noopener noreferrer">${icon('play')}${t('videoLink')}</a>`:`<a href="https://www.youtube.com/results?search_query=${encodeURIComponent(e.name+' exercise tutorial')}" class="button outline full" target="_blank" rel="noopener noreferrer">${icon('play')}${t('findVideo')}</a>`}</div>${e.exerciseNotes||e.notes?`<h3>${t('instructions')}</h3><p class="muted option-notes">${esc(e.exerciseNotes)}${e.notes?'\n'+esc(e.notes):''}</p>`:''}<h3>${t('previous')}</h3><p class="muted">${old.length?old.map((z,i)=>`${t('set')} ${i+1}: ${esc(result(z,e))}`).join('<br>'):t('noPrevious')}</p>`);}
 function historyRow(s){const c=counts(s);return `<article class="history-row"><div class="history-icon">${icon('check')}</div><div class="grow"><h3>${esc(s.dayName)}</h3><p class="muted small">${esc(s.planName)} · ${date(s.finishedAt)}</p></div><span class="history-count">${c.done} ${t('sets')}<small>${duration(s)} ${t('minutes')}</small></span>${button(t('details'),'history-detail',`data-id="${s.id}"`,'outline')}</article>`;}
 function historyPage(){return pageTitle(t('navHistory'),t('historyTitle'),t('historyIntro'))+`<section class="panel">${[...data.history].reverse().map(historyRow).join('')||`<div class="empty">${icon('history')}<p>${t('emptyHistory')}</p></div>`}</section><section class="panel"><h2>${t('progress')}</h2><p class="muted">${t('progressHelp')}</p><label for="progress-exercise">${t('exercise')}</label><select id="progress-exercise"><option value="">—</option>${data.exercises.filter(e=>data.history.some(s=>s.entries.some(x=>x.exerciseId===e.id&&x.sets.some(z=>z.done)))).map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join('')}</select><div id="progress-results"></div></section>`;}
-function settingsPage(){return pageTitle(t('navSettings'),t('settingsTitle'),'')+`<div class="settings-grid"><section class="panel"><h2>${t('storageTitle')}</h2><p class="muted">${t('storageText')}</p><div class="actions">${button(t('export'),'export','','primary')}<label class="button outline" for="import-file">${t('import')}</label><input type="file" id="import-file" accept="application/json,.json" hidden></div><p class="small muted">${t('importText')}</p></section><section class="panel"><h2>${t('language')}</h2><select aria-label="${t('language')}" disabled><option>${t('english')}</option></select><p class="muted">${t('languageHelp')}</p></section><section class="panel"><h2>${t('installTitle')}</h2><p class="muted">${t('installText')}</p></section><section class="panel"><h2>${t('enableSound')}</h2><label class="checkbox"><input id="sound-setting" type="checkbox" ${data.settings.sound?'checked':''}>${t('enableSound')}</label><p class="muted">${t('soundHelp')}</p></section></div><p class="muted small">${t('aboutTitle')} · ${t('aboutText')}</p>${button(t('checkUpdates'),'check-update','','outline')}`;}
+function settingsPage(){return pageTitle(t('navSettings'),t('settingsTitle'),'')+`<div class="settings-grid">${accountPanel()}<section class="panel"><h2>${t('storageTitle')}</h2><p class="muted">${t('storageText')}</p><div class="actions">${button(t('export'),'export','','primary')}<label class="button outline" for="import-file">${t('import')}</label><input type="file" id="import-file" accept="application/json,.json" hidden></div><p class="small muted">${t('importText')}</p></section><section class="panel"><h2>${t('language')}</h2><select aria-label="${t('language')}" disabled><option>${t('english')}</option></select><p class="muted">${t('languageHelp')}</p></section><section class="panel"><h2>${t('installTitle')}</h2><p class="muted">${t('installText')}</p></section><section class="panel"><h2>${t('enableSound')}</h2><label class="checkbox"><input id="sound-setting" type="checkbox" ${data.settings.sound?'checked':''}>${t('enableSound')}</label><p class="muted">${t('soundHelp')}</p></section></div><p class="muted small">${t('aboutTitle')} · ${t('aboutText')}</p>${button(t('checkUpdates'),'check-update','','outline')}`;}
 function simpleForm(title,label,action,value='',desc=''){show(`<h2>${title}</h2><p class="muted">${desc}</p><form data-form="${action}"><label>${label}<input name="name" required maxlength="100" value="${esc(value)}"></label><div class="dialog-actions">${button(t('cancel'),'close','','outline')}<button class="primary" type="submit">${t('save')}</button></div></form>`);}
 function itemEditor(itemId){const item=day().items.find(i=>i.id===itemId),exercise=item?ex(item.exerciseId):null;show(`<h2>${t(item?'edit':'addExercise')}</h2><form data-form="item" data-id="${itemId||''}"><label>${t('existingExercise')}<select name="exerciseId" required>${data.exercises.map(e=>`<option value="${e.id}" ${e.id===exercise?.id?'selected':''}>${esc(e.name)}</option>`).join('')}</select></label><div class="form-grid"><label>${t('sets')}<input name="sets" type="number" min="1" max="100" required value="${item?.sets??3}"></label><label>${t('repMode')}<select name="repMode">${['range','perSide','perLeg','atLeast','seconds'].map(m=>`<option value="${m}" ${m===item?.repMode?'selected':''}>${t(m)}</option>`).join('')}</select></label><label>${t('repsMin')}<input name="repsMin" type="number" min="1" max="10000" required value="${item?.repsMin??8}"></label><label>${t('repsMax')}<input name="repsMax" type="number" min="1" max="10000" required value="${item?.repsMax??12}"></label><label>${t('restMin')}<input name="restMin" type="number" min="0" max="3600" required value="${item?.restMin??90}"></label><label>${t('restMax')}<input name="restMax" type="number" min="0" max="3600" required value="${item?.restMax??120}"></label></div><label>${t('notes')}<textarea name="notes" maxlength="20000">${esc(item?.notes||'')}</textarea></label><p class="muted small">${t('libraryHelp')}</p><div class="dialog-actions">${item?button(t('remove'),'remove-item',`data-id="${item.id}"`,'text-btn danger'):''}${button(t('cancel'),'close','','outline')}<button type="submit" class="primary">${t('save')}</button></div></form><hr>${button(t('addToLibrary'),'new-library','','text-btn')}${exercise?button(t('edit')+' · '+esc(exercise.name),'edit-library',`data-id="${exercise.id}"`,'text-btn'):''}`);}
 function libraryEditor(id){const e=ex(id);show(`<h2>${t(e?'edit':'newExercise')}</h2><form data-form="library" data-id="${id||''}"><label>${t('exerciseName')}<input name="name" value="${esc(e?.name||'')}" required maxlength="150"></label><label>${t('weightMode')}<select name="weightMode">${['total','each','bodyweight','assisted'].map(m=>`<option value="${m}" ${m===e?.weightMode?'selected':''}>${t(m)}</option>`).join('')}</select></label><p class="muted small">${t('weightHelp')}</p><label>${t('video')}<input name="video" type="url" value="${esc(e?.video||'')}" maxlength="2000"></label><label>${t('notes')}<textarea name="notes" maxlength="20000">${esc(e?.notes||'')}</textarea></label><label>${t('alternatives')}<select name="alternatives" multiple size="6">${data.exercises.filter(x=>x.id!==id).map(x=>`<option value="${x.id}" ${e?.alternatives.includes(x.id)?'selected':''}>${esc(x.name)}</option>`).join('')}</select></label><p class="muted small">${t('altHelp')}</p><div class="dialog-actions">${button(t('cancel'),'close','','outline')}<button class="primary" type="submit">${t('save')}</button></div></form>`);}
@@ -54,6 +67,11 @@ function beep(){if(!audioContext||!data.settings.sound)return;try{const o=audioC
 function updateTimer(){const s=data?.active;if(!s?.restEndsAt)return;const seconds=Math.max(0,Math.ceil((s.restEndsAt-Date.now())/1000));const node=document.querySelector('#timer-value');if(node)node.textContent=time(seconds);if(!seconds){s.restEndsAt=null;persist();beep();toast(t('restDone'));const toggle=document.querySelector('[data-action="timer-toggle"]');if(toggle){toggle.innerHTML=icon('play');toggle.setAttribute('aria-label',t('startRest'));}const msg=document.querySelector('#timer-message');if(msg)msg.textContent=t('restDone');}}
 function captureSet(i){const s=current().sets[i];document.querySelectorAll(`[data-set="${i}"]`).forEach(n=>s[n.dataset.field]=n.value===''?null:Number(n.value));}
 async function action(a,b){const s=data.active,e=current();switch(a){
+case 'sign-in':await persist();await microsoft.signIn();break;
+case 'reconnect':await persist();await microsoft.reconnect();break;
+case 'sign-out':if(syncBusy){toast(t('syncWorking'));break;}await persist();await writeQueue;clearTimeout(syncTimer);await microsoft.signOut();clearInterval(timerInterval);authError='';render();break;
+case 'sync-now':await syncNow(true);break;
+case 'cancel-sync-conflict':pendingMerge=null;modal.close();syncState='syncConflict';render();break;
 case 'nav':go(b.dataset.page);break;
 case 'check-update':await checkForUpdates();break;
 case 'open-plan':{const p=data.plans.find(p=>p.id===b.dataset.id);go('plan',{planId:p.id,dayId:p.days[0]?.id});break;}
@@ -91,11 +109,12 @@ case 'finish-save':if(!data.active)return;data.history.push(finishSession(s));da
 case 'discard':if(confirm(t('confirmDiscard'))){data.active=null;await persist();go('home');}break;
 case 'history-detail':{const h=data.history.find(x=>x.id===b.dataset.id);show(`<p class="eyebrow">${t('readOnly')} · ${date(h.finishedAt)}</p><h2>${esc(h.dayName)}</h2><p class="muted">${esc(h.planName)} · ${duration(h)} ${t('minutes')}</p>${h.entries.map(x=>`<div class="history-exercise"><h3>${esc(x.name)}</h3>${x.name!==x.plannedName?`<p class="small muted">${t('planned')}: ${esc(x.plannedName)}</p>`:''}<p>${x.sets.map((z,i)=>`${t('set')} ${i+1}: ${z.done?esc(result(z,x)):t('skipped')}`).join('<br>')}</p></div>`).join('')}${h.notes?`<p class="history-note">${esc(h.notes)}</p>`:''}${button(t('deleteWorkout'),'delete-history',`data-id="${h.id}"`,'text-btn danger')}`);break;}
 case 'delete-history':if(confirm(t('confirmDeleteWorkout'))){data.history=data.history.filter(h=>h.id!==b.dataset.id);await persist();modal.close();render();}break;
-case 'export':{const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=`kudazo-fitness-${new Date().toISOString().slice(0,10)}.json`;link.click();setTimeout(()=>URL.revokeObjectURL(url),60000);toast(t('exported'));break;}
+case 'export':exportData(data);break;
+case 'export-recovery':{const snapshot=syncMeta?.recovery?.[Number(b.dataset.index)];if(snapshot)exportData(snapshot.data,'recovery');break;}
 }}
-app.addEventListener('click',ev=>{const b=ev.target.closest('[data-action]');if(b){ev.preventDefault();action(b.dataset.action,b).catch(()=>toast(t('saveError')));}});
-modal.addEventListener('click',ev=>{const b=ev.target.closest('[data-action]');if(b)action(b.dataset.action,b).catch(()=>toast(t('saveError')));});
-modal.addEventListener('submit',async ev=>{ev.preventDefault();const f=ev.target,v=new FormData(f),name=String(v.get('name')||'').trim();switch(f.dataset.form){
+app.addEventListener('click',ev=>{const b=ev.target.closest('[data-action]');if(b){ev.preventDefault();action(b.dataset.action,b).catch(error=>{if(['sign-in','reconnect'].includes(b.dataset.action)){authError=error.errorCode||'signInFailed';renderSignIn();}else toast(t('saveError'));});}});
+modal.addEventListener('click',ev=>{const b=ev.target.closest('[data-action]');if(b)action(b.dataset.action,b).catch(error=>{if(['sign-in','reconnect'].includes(b.dataset.action)){authError=error.errorCode||'signInFailed';renderSignIn();}else toast(t('saveError'));});});
+modal.addEventListener('submit',async ev=>{ev.preventDefault();const f=ev.target,v=new FormData(f),name=String(v.get('name')||'').trim();if(f.dataset.form==='sync-conflicts'){await applyConflictChoices(v);return;}switch(f.dataset.form){
 case 'plan':if(!name)return;{const p={id:uid(),name,days:[]};data.plans.push(p);view={page:'plan',planId:p.id};}break;
 case 'rename-plan':if(!name)return;plan().name=name;break;
 case 'day':if(!name)return;{const d={id:uid(),name,items:[]};plan().days.push(d);view.dayId=d.id;}break;
@@ -104,17 +123,27 @@ case 'item':{const item={id:f.dataset.id||uid(),exerciseId:String(v.get('exercis
 case 'library':{const video=String(v.get('video')).trim();if(!name)return;if(!safeVideo(video)){toast(t('invalidVideo'));return;}const item={id:f.dataset.id||uid(),name,weightMode:String(v.get('weightMode')),video,notes:String(v.get('notes')).trim(),alternatives:v.getAll('alternatives')};const i=data.exercises.findIndex(e=>e.id===item.id);if(i<0)data.exercises.push(item);else data.exercises[i]=item;break;}
 }await persist();modal.close();render();});
 app.addEventListener('input',ev=>{const n=ev.target;if(n.dataset.set!==undefined){const value=Number(n.value);current().sets[Number(n.dataset.set)][n.dataset.field]=n.value===''||!Number.isFinite(value)||value<0||value>10000?null:value;persist();}else if(n.id==='workout-notes'){data.active.notes=n.value;persist();}});
-app.addEventListener('change',async ev=>{const n=ev.target;if(n.id==='sound-setting'){data.settings.sound=n.checked;unlockAudio();await persist();}if(n.id==='progress-exercise'){document.querySelector('#progress-results').innerHTML=[...data.history].reverse().flatMap(h=>h.entries.filter(e=>e.exerciseId===n.value&&e.sets.some(z=>z.done)).map(e=>`<div class="progress-record"><strong>${date(h.finishedAt)}</strong><span>${e.sets.filter(z=>z.done).map(z=>esc(result(z,e))).join(' · ')}</span></div>`)).join('');}if(n.id==='import-file'&&n.files[0]){try{if(n.files[0].size>25*1024*1024)throw Error();const incoming=JSON.parse(await n.files[0].text());if(!validBackup(incoming))throw Error();if(confirm(t('confirmImport'))){data=incoming;await persist();render();toast(t('imported'));}}catch{toast(t('invalidBackup'));}n.value='';}});
-window.addEventListener('online',()=>render());window.addEventListener('offline',()=>render());
-document.addEventListener('visibilitychange',()=>{if(!document.hidden)updateTimer();});
-try{const response=await fetch(new URL('../locales/en.json?v=4',import.meta.url));if(!response.ok)throw Error();dict=await response.json();const stored=await read();if(stored!==undefined&&!validBackup(stored))throw Error();data=stored||seed();if(!stored)await persist();render();timerInterval=setInterval(updateTimer,500);if('serviceWorker'in navigator)setupUpdates();}catch(error){app.innerHTML=`<main><h1>Kudazo Fitness</h1><p>${esc(t('storageError'))}</p><button onclick="location.reload()">${esc(t('recover'))}</button></main>`;console.error(error);}
+app.addEventListener('change',async ev=>{const n=ev.target;if(n.id==='sound-setting'){data.settings.sound=n.checked;unlockAudio();await persist();}if(n.id==='progress-exercise'){document.querySelector('#progress-results').innerHTML=[...data.history].reverse().flatMap(h=>h.entries.filter(e=>e.exerciseId===n.value&&e.sets.some(z=>z.done)).map(e=>`<div class="progress-record"><strong>${date(h.finishedAt)}</strong><span>${e.sets.filter(z=>z.done).map(z=>esc(result(z,e))).join(' · ')}</span></div>`)).join('');}if(n.id==='import-file'&&n.files[0]){try{if(n.files[0].size>25*1024*1024)throw Error();let incoming=JSON.parse(await n.files[0].text());if(validReplica(incoming))incoming=materialize(incoming,data);if(!validBackup(incoming))throw Error();if(confirm(t('confirmImport'))){data=incoming;await persist();render();toast(t('imported'));}}catch{toast(t('invalidBackup'));}n.value='';}});
+window.addEventListener('online',()=>{render();scheduleSync();});window.addEventListener('offline',()=>render());
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){updateTimer();scheduleSync();}});
+try{
+ const response=await fetch(new URL('../locales/en.json?v=6',import.meta.url));if(!response.ok)throw Error();dict=await response.json();
+ if(await acquireAppLock()){
+  const stored=await read();if(stored!==undefined&&!validBackup(stored))throw Error();data=stored||seed();syncMeta=await readSync()||null;if(syncMeta&&!validReplica(syncMeta.replica))throw Error();mirror=shared(data);
+  if(!stored)await persist();
+  try{await microsoft.initializeMicrosoft();}catch(error){authError=error.errorCode||'signInFailed';}
+  if(microsoft.account()&&!accountMismatch())await bindAccount();
+  render();timerInterval=setInterval(updateTimer,500);if(microsoft.account())scheduleSync(300);
+ }
+ if('serviceWorker'in navigator)setupUpdates();
+}catch(error){app.innerHTML=`<main><h1>Kudazo Fitness</h1><p>${esc(t('storageError'))}</p><button onclick="location.reload()">${esc(t('recover'))}</button></main>`;}
 
 function renderUpdateNotice(){
  let notice=document.querySelector('#update-notice');
  if(!updateAvailable){notice?.remove();return;}
  if(!notice){notice=document.createElement('aside');notice.id='update-notice';notice.setAttribute('role','status');document.body.append(notice);}
  notice.innerHTML=`<span>${t('newVersionAvailable')}</span><button type="button" class="primary" id="apply-update">${t('loadUpdate')}</button>`;
- notice.querySelector('button').onclick=async()=>{await persist();await writeQueue;if(!saveFailed)location.reload();};
+ notice.querySelector('button').onclick=async()=>{if(data){await persist();await writeQueue;}if(!saveFailed)location.reload();};
 }
 async function checkForUpdates(){
  if(!navigator.onLine){toast(t('updateNeedsInternet'));return;}
@@ -133,3 +162,64 @@ async function setupUpdates(){
   document.addEventListener('visibilitychange',()=>{if(!document.hidden&&navigator.onLine)appRegistration.update().catch(()=>{});});
  }catch{/* Training remains available if an update cannot be checked. */}
 }
+
+function accountMismatch(){return Boolean(syncMeta?.owner&&microsoft.account()&&syncMeta.owner!==microsoft.account().homeAccountId);}
+function renderSignIn(){
+ const mismatch=accountMismatch();
+ app.innerHTML=`<main class="login-screen"><section class="login-card"><div class="brandmark">K<span>.</span></div><p class="eyebrow">${t('appName')}</p><h1>${t('signInTitle')}</h1><p class="muted">${t('signInIntro')}</p>${mismatch?`<p class="auth-error">${t('differentAccount')}</p>${button(t('signOut'),'sign-out','','outline full')}`:button(t('microsoftSignIn'),'sign-in',`${!navigator.onLine?'disabled':''}`,'primary full')}<p class="muted small">${t('rememberSignIn')}</p>${authError?`<p class="auth-error" role="alert">${t('signInFailed')}<br><small>${esc(authError)}</small></p>`:''}${!navigator.onLine?`<p class="muted">${t('signInOffline')}</p>`:''}${button(t('export'),'export','','text-btn')}<p class="muted small">${t('signInExistingData')}</p></section></main>`;
+}
+function accountPanel(){return `<section class="panel"><h2>${t('accountTitle')}</h2><p class="muted">${esc(microsoft.account()?.username||'')}</p><p class="sync-status" role="status">${t(syncState)}</p><p class="small muted" id="last-sync">${syncMeta?.lastSync?t('lastSync')+' '+new Date(syncMeta.lastSync).toLocaleString('en'):''}</p><div class="actions">${button(t('syncNow'),'sync-now',syncBusy?'disabled':'','primary')}${button(t('reconnect'),'reconnect','','outline')}${button(t('signOut'),'sign-out',syncBusy?'disabled':'','text-btn')}</div><p class="muted small">${t('syncHelp')}</p><details><summary>${t('syncRecovery')}</summary><p class="muted small">${t('syncRecoveryHelp')}</p>${(syncMeta?.recovery||[]).map((snapshot,i)=>button(t('exportRecovery')+' · '+new Date(snapshot.at).toLocaleString('en'),'export-recovery',`data-index="${i}"`,'outline full')).join('')||`<p class="muted small">${t('noRecoveryYet')}</p>`}</details></section>`;}
+async function bindAccount(){
+ const account=microsoft.account();if(!account||accountMismatch())return;
+ if(!syncMeta){const pristine=isDefaultData(data,seed());syncMeta={owner:account.homeAccountId,replica:newReplica(uid(),deviceName()),initialized:false,pristine,lastUploaded:0,lastSync:null,recovery:[],remoteCache:{}};if(!pristine)trackChanges(syncMeta.replica,null,data);await persist();}
+ syncState=navigator.onLine?'syncPending':'syncOffline';
+}
+function deviceName(){const ua=navigator.userAgent;return /iPhone/.test(ua)?'iPhone':/iPad/.test(ua)?'iPad':/Android/.test(ua)?'Android':/Windows/.test(ua)?'Windows PC':/Mac/.test(ua)?'Mac':'Browser';}
+function scheduleSync(delay=3500){clearTimeout(syncTimer);if(!microsoft.account()||accountMismatch()||!syncMeta||data.active||pendingMerge)return;syncTimer=setTimeout(()=>syncNow(false),delay);}
+function editorOpen(){const focused=document.activeElement;return modal.open||['INPUT','TEXTAREA','SELECT'].includes(focused?.tagName);}
+function refreshSyncStatus(){document.querySelectorAll('[data-action="sync-now"],[data-action="sign-out"]').forEach(button=>button.disabled=syncBusy);const last=document.querySelector('#last-sync');if(last&&syncMeta?.lastSync)last.textContent=t('lastSync')+' '+new Date(syncMeta.lastSync).toLocaleString('en');const s=document.querySelector('.sync-status');if(s)s.textContent=t(syncState);const node=document.querySelector('#storage-status');if(node)node.textContent=t(syncState);const device=document.querySelector('.device-status');if(device)device.innerHTML=`<i></i>${t(navigator.onLine?syncState:'offline')}`;}
+async function syncNow(manual=false){
+ clearTimeout(syncTimer);
+ if(!syncMeta||!microsoft.account()||accountMismatch()||syncBusy)return;
+ if(!navigator.onLine){syncState='syncOffline';refreshSyncStatus();if(manual)toast(t('syncOffline'));return;}
+ if(data.active){syncState='syncAfterWorkout';refreshSyncStatus();if(manual)toast(t('syncAfterWorkout'));return;}
+ if(editorOpen()){scheduleSync(3000);return;}
+ if(pendingMerge){if(manual)showSyncConflicts();return;}
+ syncBusy=true;syncState='syncWorking';refreshSyncStatus();
+ try{
+  await writeQueue;if(saveFailed)throw Error();
+  const items=await microsoft.cloudSnapshots(),remotes=[];
+  for(const item of items){let remote=syncMeta.remoteCache?.[item.deviceId];if(!remote||remote.id!==item.id||remote.eTag!==item.eTag){const replica=await microsoft.downloadSnapshot(item);if(!validReplica(replica)||replica.deviceId!==item.deviceId||replica.clock[item.deviceId]!==item.sequence)throw new microsoft.SyncError('syncInvalidData');remote={id:item.id,eTag:item.eTag,replica};}remotes.push(remote.replica);syncMeta.remoteCache[item.deviceId]=remote;if(item.deviceId===syncMeta.replica.deviceId)syncMeta.lastUploaded=Math.max(syncMeta.lastUploaded,item.sequence);}
+  // Training may have started or an editor opened while the network request was running.
+  if(data.active||editorOpen()){syncState='syncPending';scheduleSync();return;}
+  if(!items.length&&!syncMeta.initialized&&syncMeta.pristine){trackChanges(syncMeta.replica,null,data);syncMeta.pristine=false;}
+  if(!items.length&&syncMeta.replica.clock[syncMeta.replica.deviceId]<=syncMeta.lastUploaded&&GROUPS.some(g=>Object.keys(syncMeta.replica.records[g]).length))syncMeta.replica.clock[syncMeta.replica.deviceId]++;
+  const merged=mergeReplicas(syncMeta.replica,remotes);
+  if(merged.conflicts.length){pendingMerge=merged;syncState='syncConflict';showSyncConflicts();return;}
+  const incomingChanged=await acceptReplica(merged.replica);
+  await sendPendingSnapshot();
+  syncMeta.initialized=true;syncMeta.lastSync=Date.now();syncState='syncDone';await persist();
+  if(incomingChanged&&!data.active&&!editorOpen()){if(view.page==='plan'&&!plan())view={page:'plans'};render();}
+  if(manual)toast(t('syncDone'));
+ }catch(error){syncState=error.key||'syncFailed';if(manual)toast(t(syncState));}
+ finally{syncBusy=false;refreshSyncStatus();if(syncMeta&&syncMeta.replica.clock[syncMeta.replica.deviceId]>syncMeta.lastUploaded&&!pendingMerge&&syncState==='syncDone')scheduleSync();}
+}
+async function acceptReplica(replica){
+ const updated=materialize(replica,data);if(!validBackup(updated))throw new microsoft.SyncError('syncInvalidData');
+ const changed=!GROUPS.every(g=>equivalent(updated[g],data[g]));
+ if(changed){syncMeta.recovery.push({at:Date.now(),data:copy(data)});syncMeta.recovery=syncMeta.recovery.slice(-3);}
+ syncMeta.replica=replica;data=updated;mirror=shared(data);await persist();await writeQueue;if(saveFailed)throw Error();return changed;
+}
+async function sendPendingSnapshot(){const replica=copy(syncMeta.replica),sequence=replica.clock[replica.deviceId];if(sequence<=syncMeta.lastUploaded)return;await microsoft.uploadSnapshot(replica);syncMeta.lastUploaded=Math.max(syncMeta.lastUploaded,sequence);}
+function showSyncConflicts(){if(!pendingMerge)return;show(`<h2>${t('syncConflictTitle')}</h2><p class="muted">${t('syncConflictHelp')}</p><form data-form="sync-conflicts">${pendingMerge.conflicts.map((c,i)=>`<label>${esc(c.candidates.find(x=>x.value)?.value?.name||c.candidates.find(x=>x.value)?.value?.dayName||c.group)}<select name="choice-${i}" required><option value="">${t('chooseVersion')}</option>${c.candidates.map((candidate,j)=>`<option value="${j}">${esc(candidate.deviceName)} · ${candidate.value===null?t('deletedVersion'):candidate.deviceId===syncMeta.replica.deviceId?t('thisDeviceVersion'):t('oneDriveVersion')}</option>`).join('')}</select></label>`).join('')}<div class="dialog-actions">${button(t('cancel'),'cancel-sync-conflict','','outline')}<button class="primary" type="submit">${t('syncResolve')}</button></div></form>`);}
+async function applyConflictChoices(values){
+ if(!pendingMerge||syncBusy)return;const result=resolveConflicts(pendingMerge,pendingMerge.conflicts.map((_,i)=>Number(values.get('choice-'+i))));
+ // Choosing a version is a new edit that causally supersedes both alternatives.
+ await acceptReplica(result);pendingMerge=null;modal.close();syncState='syncPending';render();await syncNow(true);
+}
+async function acquireAppLock(){
+ if(!navigator.locks)return true;
+ return new Promise(resolve=>navigator.locks.request('kudazo-fitness-editor',{ifAvailable:true},async lock=>{if(!lock){app.innerHTML=`<main class="login-screen"><section class="login-card"><h1>${t('anotherTabTitle')}</h1><p class="muted">${t('anotherTabHelp')}</p><button onclick="location.reload()">${t('recover')}</button></section></main>`;resolve(false);return;}resolve(true);await new Promise(release=>appLockRelease=release);}));
+}
+
+function exportData(value,suffix='backup'){const blob=new Blob([JSON.stringify(value,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=`kudazo-fitness-${suffix}-${new Date().toISOString().slice(0,10)}.json`;link.click();setTimeout(()=>URL.revokeObjectURL(url),60000);toast(t('exported'));}

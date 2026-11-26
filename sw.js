@@ -1,7 +1,8 @@
-const BUILD='4';
+const BUILD='6';
 const CACHE=`kudazo-fitness-v${BUILD}`;
+const ROOT=new URL('./',self.location.href).pathname;
 const SHELL=`./index.html?build=${BUILD}`;
-const FILES=[SHELL,'./style.css?v=4','./src/app.js?v=4','./src/model.js?v=4','./src/data.js?v=4','./src/storage.js?v=4','./locales/en.json?v=4','./manifest.webmanifest','./icons/icon.svg','./icons/icon-192.png','./icons/icon-512.png','./icons/apple-touch-icon.png'];
+const FILES=[SHELL,'./style.css?v=6','./src/app.js?v=6','./src/microsoft.js?v=6','./src/sync-model.js?v=6','./vendor/msal-browser-4.30.0.min.js','./src/model.js?v=6','./src/data.js?v=6','./src/storage.js?v=6','./locales/en.json?v=6','./manifest.webmanifest','./icons/icon.svg','./icons/icon-192.png','./icons/icon-512.png','./icons/apple-touch-icon.png'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(c=>c.addAll(FILES)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('kudazo-fitness-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',event=>{
@@ -9,7 +10,7 @@ self.addEventListener('fetch',event=>{
  if(request.method!=='GET'||url.origin!==self.location.origin)return;
  event.respondWith((async()=>{
   const cache=await caches.open(CACHE);
-  if(request.mode==='navigate'){
+  if(request.mode==='navigate'&&(url.pathname===ROOT||url.pathname===ROOT+'index.html')){
    // Refresh the app shell when online; a timestamped cache still works offline.
    const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),4000);
    try{const response=await fetch(request,{cache:'no-cache',signal:controller.signal});if(!response.ok)throw Error('Navigation failed');await cache.put(SHELL,response.clone());return response;}

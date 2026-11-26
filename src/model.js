@@ -18,7 +18,7 @@ export function finishSession(session,now=Date.now()){const done=copy(session);d
 export function safeVideo(value){if(!value)return true;try{const u=new URL(value);return u.protocol==='https:'&&['youtube.com','www.youtube.com','m.youtube.com','youtu.be'].includes(u.hostname)&&!u.username&&!u.password;}catch{return false;}}
 const modes=['total','each','bodyweight','assisted'], repModes=['range','perSide','perLeg','atLeast','seconds'];
 const str=x=>typeof x==='string'&&x.length<=20000;
-const id=x=>typeof x==='string'&&/^[A-Za-z0-9_-]{1,100}$/.test(x);
+const id=x=>typeof x==='string'&&/^[A-Za-z0-9_-]{1,100}$/.test(x)&&!['__proto__','constructor','prototype'].includes(x);
 const number=x=>typeof x==='number'&&Number.isFinite(x)&&x>=0&&x<=1e15;
 function prescription(e){return number(e.repsMin)&&e.repsMin>0&&number(e.repsMax)&&e.repsMax>=e.repsMin&&number(e.restMin)&&number(e.restMax)&&e.restMax>=e.restMin&&repModes.includes(e.repMode)&&str(e.notes);}
 function validSession(s){return s&&id(s.id)&&str(s.planName)&&str(s.dayName)&&number(s.startedAt)&&(s.finishedAt===null||number(s.finishedAt))&&(s.restEndsAt===null||number(s.restEndsAt))&&str(s.notes)&&Array.isArray(s.entries)&&s.entries.length<=500&&s.entries.every(e=>id(e.id)&&id(e.exerciseId)&&str(e.name)&&str(e.plannedName)&&modes.includes(e.weightMode)&&safeVideo(e.video)&&str(e.exerciseNotes)&&prescription(e)&&Array.isArray(e.alternatives)&&e.alternatives.every(str)&&Array.isArray(e.sets)&&e.sets.length>0&&e.sets.length<=100&&e.sets.every(x=>(x.weight===null||number(x.weight))&&(x.reps===null||number(x.reps))&&typeof x.done==='boolean'&&typeof x.skipped==='boolean'&&(!x.done||(number(x.reps)&&x.reps>0&&(e.weightMode==='bodyweight'||number(x.weight))))));}
