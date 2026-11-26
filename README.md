@@ -29,3 +29,7 @@ Bump the service-worker cache name whenever changing deployed assets. Updates ac
 ## Data and limits
 
 Data stays within the browser origin and device. Export regularly; clearing site data removes it. Cloud sync and TV casting are not implemented. Timer timestamps survive navigation/reopening, but sound/background execution is not guaranteed when the phone locks. YouTube requires internet. Workouts and sets save after changes; the app does not fetch or upload videos. Only one app tab should edit workouts at a time.
+
+## Focused workout mode
+
+Starting/resuming a workout first opens an exercise picker. Selecting an exercise shows only that exercise with its set inputs and rest timer. The general app navigation is hidden. Alternative exercises, videos, instructions and prior results are in the exercise options menu. The picker retains session reordering and workout completion.

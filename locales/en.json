@@ -183,5 +183,9 @@
   "readOnly": "Completed workout",
   "loadError": "Could not load the app. Please reload while online.",
   "personalEdition": "Personal edition",
-  "findVideo": "Find instruction on YouTube"
+  "findVideo": "Find instruction on YouTube",
+  "pickExercise": "Choose an exercise to begin.",
+  "exerciseList": "Exercises",
+  "exerciseOptions": "Exercise options",
+  "workoutOptions": "Workout options"
 }
