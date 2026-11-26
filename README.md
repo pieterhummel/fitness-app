@@ -24,7 +24,7 @@ Open http://localhost:8080. Tests require Node 22+: `npm test`.
 ## Deployment
 
 GitHub Pages: main branch, repository root. Preserve CNAME `fitnessapp.kudazo.nl`.
-Bump the service-worker cache name whenever changing deployed assets. Updates activate after existing app tabs close; do not force reload during an active workout.
+Bump the service-worker cache name whenever changing deployed assets. Updates activate without waiting for every tab to close. Navigation refreshes the shell online; versioned assets keep releases consistent. The app displays a reload button for new versions and saves the active workout before the user reloads. Bump BUILD and all asset version query strings together for future releases.
 
 ## Data and limits
 

@@ -131,7 +131,7 @@
   "languageHelp": "More languages can be added. Your exercise names and notes stay as you entered them.",
   "installTitle": "Take it to the gym",
   "installText": "On iPhone: open this app in Safari, tap Share, then Add to Home Screen. On Android: use Install app in your browser menu. Open once online to make the app available offline. YouTube videos still need internet.",
-  "aboutTitle": "Version 1 \u00b7 Personal edition",
+  "aboutTitle": "Version 0.2.1 \u00b7 Personal edition",
   "aboutText": "Cloud sync and TV casting are planned for a later version.",
   "offline": "Offline \u00b7 saved on device",
   "online": "On this device",
@@ -187,5 +187,11 @@
   "pickExercise": "Choose an exercise to begin.",
   "exerciseList": "Exercises",
   "exerciseOptions": "Exercise options",
-  "workoutOptions": "Workout options"
+  "workoutOptions": "Workout options",
+  "checkUpdates": "Check for updates",
+  "newVersionAvailable": "A new version is ready. Your workout will be saved before reloading.",
+  "loadUpdate": "Load new version",
+  "updateChecked": "Update checked. If a new version is downloading, a reload button will appear shortly.",
+  "updateNeedsInternet": "Connect to the internet to check for updates.",
+  "updateCheckFailed": "Could not check for updates. Please try again later."
 }
