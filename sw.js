@@ -1,8 +1,8 @@
-const BUILD='6';
+const BUILD='7';
 const CACHE=`kudazo-fitness-v${BUILD}`;
 const ROOT=new URL('./',self.location.href).pathname;
 const SHELL=`./index.html?build=${BUILD}`;
-const FILES=[SHELL,'./style.css?v=6','./src/app.js?v=6','./src/microsoft.js?v=6','./src/sync-model.js?v=6','./vendor/msal-browser-4.30.0.min.js','./src/model.js?v=6','./src/data.js?v=6','./src/storage.js?v=6','./locales/en.json?v=6','./manifest.webmanifest','./icons/icon.svg','./icons/icon-192.png','./icons/icon-512.png','./icons/apple-touch-icon.png'];
+const FILES=[SHELL,'./style.css?v=7','./src/app.js?v=7','./src/microsoft.js?v=7','./src/sync-model.js?v=7','./vendor/msal-browser-4.30.0.min.js','./src/model.js?v=7','./src/data.js?v=7','./src/storage.js?v=7','./locales/en.json?v=7','./manifest.webmanifest?v=7','./icons/favicon.png?v=7','./icons/icon-maskable-512.png?v=7','./icons/icon-192.png?v=7','./icons/icon-512.png?v=7','./icons/apple-touch-icon.png?v=7'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(c=>c.addAll(FILES)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('kudazo-fitness-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',event=>{

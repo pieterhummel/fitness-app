@@ -1,4 +1,4 @@
-import {copy,validBackup} from './model.js?v=6';
+import {copy,validBackup} from './model.js?v=7';
 export const GROUPS=['plans','exercises','history'];
 const DEVICE=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const keyOK=id=>typeof id==='string'&&/^[A-Za-z0-9_-]{1,100}$/.test(id)&&!['__proto__','constructor','prototype'].includes(id);

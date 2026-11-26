@@ -1,8 +1,8 @@
-import * as microsoft from './microsoft.js?v=6';
-import {GROUPS,shared,equivalent,isDefaultData,newReplica,trackChanges,materialize,mergeReplicas,resolveConflicts,validReplica} from './sync-model.js?v=6';
-import {seed} from './data.js?v=6';
-import {read,readSync,write} from './storage.js?v=6';
-import {uid,copy,startSession,swapExercise,moveEntry,previousSets,counts,finishSession,safeVideo,validBackup} from './model.js?v=6';
+import * as microsoft from './microsoft.js?v=7';
+import {GROUPS,shared,equivalent,isDefaultData,newReplica,trackChanges,materialize,mergeReplicas,resolveConflicts,validReplica} from './sync-model.js?v=7';
+import {seed} from './data.js?v=7';
+import {read,readSync,write} from './storage.js?v=7';
+import {uid,copy,startSession,swapExercise,moveEntry,previousSets,counts,finishSession,safeVideo,validBackup} from './model.js?v=7';
 let appRegistration,updateAvailable=false;
 let syncMeta=null,mirror=null,syncTimer,syncBusy=false,syncState='syncNotConnected',authError='',pendingMerge=null,appLockRelease;
 let dict={},data,view={page:'home'},timerInterval,audioContext,writeQueue=Promise.resolve(),saveFailed=false;
@@ -41,7 +41,7 @@ renderUpdateNotice();
 if(!microsoft.account()||accountMismatch()){renderSignIn();return;}
 if(view.page==='session'&&data.active){app.innerHTML=`<main class="session-shell">${sessionPage()}</main>`;updateTimer();return;}
 const selected=view.page==='plan'?'plans':view.page==='session'?'home':view.page;
-app.innerHTML=`<aside class="sidebar"><a class="brand" href="#" data-action="nav" data-page="home"><span class="brandmark">K<span>.</span></span><span>Kudazo<strong>FITNESS</strong></span></a><nav aria-label="Main">${['home','plans','history','settings'].map((p,i)=>button(icon(p)+`<span>${t(['navHome','navPlans','navHistory','navSettings'][i])}</span>`,'nav',`data-page="${p}" ${selected===p?'aria-current="page"':''}`,selected===p?'nav-item active':'nav-item')).join('')}</nav><div class="sidebar-foot"><div class="avatar">P</div><div>${esc(microsoft.account()?.name||t('personalEdition'))}<small id="storage-status">${t(syncState)}</small></div></div></aside><div class="workspace"><header class="topbar"><span class="mobile-brand">Kudazo<span> / Fitness</span></span><span class="desktop-label">${t('personal')}</span><span class="device-status"><i></i>${t(navigator.onLine?syncState:'offline')}</span></header><main id="main">${view.page==='home'?home():view.page==='plans'?plans():view.page==='plan'?planPage():view.page==='session'?sessionPage():view.page==='history'?historyPage():settingsPage()}</main></div>`;
+app.innerHTML=`<aside class="sidebar"><a class="brand" href="#" data-action="nav" data-page="home"><img class="brand-logo" src="./icons/icon-192.png?v=7" width="48" height="48" alt=""><span>Kudazo<strong>FITNESS</strong></span></a><nav aria-label="Main">${['home','plans','history','settings'].map((p,i)=>button(icon(p)+`<span>${t(['navHome','navPlans','navHistory','navSettings'][i])}</span>`,'nav',`data-page="${p}" ${selected===p?'aria-current="page"':''}`,selected===p?'nav-item active':'nav-item')).join('')}</nav><div class="sidebar-foot"><div class="avatar">P</div><div>${esc(microsoft.account()?.name||t('personalEdition'))}<small id="storage-status">${t(syncState)}</small></div></div></aside><div class="workspace"><header class="topbar"><span class="mobile-brand">Kudazo<span> / Fitness</span></span><span class="desktop-label">${t('personal')}</span><span class="device-status"><i></i>${t(navigator.onLine?syncState:'offline')}</span></header><main id="main">${view.page==='home'?home():view.page==='plans'?plans():view.page==='plan'?planPage():view.page==='session'?sessionPage():view.page==='history'?historyPage():settingsPage()}</main></div>`;
 updateTimer();if(view.page==='session'&&data.active&&!data.active.currentId&&data.active.entries.length){data.active.currentId=data.active.entries[0].id;render();}
 }
 function planCard(p,i){return `<article class="plan-card"><div class="plan-art art-${i%3}"><span>${p.name.includes('Upper')?'UPPER<br>LOWER':p.name.includes('Push')?'PUSH<br>PULL / LEGS':esc(p.name)}</span>${icon('plans')}</div><div class="card-body"><p class="eyebrow">${p.days.length} ${t('days')}</p><h3>${esc(p.name)}</h3><p class="muted small">${p.days.reduce((s,d)=>s+d.items.length,0)} ${t('exercises')}</p>${button(t('chooseDay'),'open-plan',`data-id="${p.id}"`,'outline full')}</div></article>`;}
@@ -127,7 +127,7 @@ app.addEventListener('change',async ev=>{const n=ev.target;if(n.id==='sound-sett
 window.addEventListener('online',()=>{render();scheduleSync();});window.addEventListener('offline',()=>render());
 document.addEventListener('visibilitychange',()=>{if(!document.hidden){updateTimer();scheduleSync();}});
 try{
- const response=await fetch(new URL('../locales/en.json?v=6',import.meta.url));if(!response.ok)throw Error();dict=await response.json();
+ const response=await fetch(new URL('../locales/en.json?v=7',import.meta.url));if(!response.ok)throw Error();dict=await response.json();
  if(await acquireAppLock()){
   const stored=await read();if(stored!==undefined&&!validBackup(stored))throw Error();data=stored||seed();syncMeta=await readSync()||null;if(syncMeta&&!validReplica(syncMeta.replica))throw Error();mirror=shared(data);
   if(!stored)await persist();
@@ -166,7 +166,7 @@ async function setupUpdates(){
 function accountMismatch(){return Boolean(syncMeta?.owner&&microsoft.account()&&syncMeta.owner!==microsoft.account().homeAccountId);}
 function renderSignIn(){
  const mismatch=accountMismatch();
- app.innerHTML=`<main class="login-screen"><section class="login-card"><div class="brandmark">K<span>.</span></div><p class="eyebrow">${t('appName')}</p><h1>${t('signInTitle')}</h1><p class="muted">${t('signInIntro')}</p>${mismatch?`<p class="auth-error">${t('differentAccount')}</p>${button(t('signOut'),'sign-out','','outline full')}`:button(t('microsoftSignIn'),'sign-in',`${!navigator.onLine?'disabled':''}`,'primary full')}<p class="muted small">${t('rememberSignIn')}</p>${authError?`<p class="auth-error" role="alert">${t('signInFailed')}<br><small>${esc(authError)}</small></p>`:''}${!navigator.onLine?`<p class="muted">${t('signInOffline')}</p>`:''}${button(t('export'),'export','','text-btn')}<p class="muted small">${t('signInExistingData')}</p></section></main>`;
+ app.innerHTML=`<main class="login-screen"><section class="login-card"><img class="login-logo" src="./icons/icon-192.png?v=7" width="96" height="96" alt=""><p class="eyebrow">${t('appName')}</p><h1>${t('signInTitle')}</h1><p class="muted">${t('signInIntro')}</p>${mismatch?`<p class="auth-error">${t('differentAccount')}</p>${button(t('signOut'),'sign-out','','outline full')}`:button(t('microsoftSignIn'),'sign-in',`${!navigator.onLine?'disabled':''}`,'primary full')}<p class="muted small">${t('rememberSignIn')}</p>${authError?`<p class="auth-error" role="alert">${t('signInFailed')}<br><small>${esc(authError)}</small></p>`:''}${!navigator.onLine?`<p class="muted">${t('signInOffline')}</p>`:''}${button(t('export'),'export','','text-btn')}<p class="muted small">${t('signInExistingData')}</p></section></main>`;
 }
 function accountPanel(){return `<section class="panel"><h2>${t('accountTitle')}</h2><p class="muted">${esc(microsoft.account()?.username||'')}</p><p class="sync-status" role="status">${t(syncState)}</p><p class="small muted" id="last-sync">${syncMeta?.lastSync?t('lastSync')+' '+new Date(syncMeta.lastSync).toLocaleString('en'):''}</p><div class="actions">${button(t('syncNow'),'sync-now',syncBusy?'disabled':'','primary')}${button(t('reconnect'),'reconnect','','outline')}${button(t('signOut'),'sign-out',syncBusy?'disabled':'','text-btn')}</div><p class="muted small">${t('syncHelp')}</p><details><summary>${t('syncRecovery')}</summary><p class="muted small">${t('syncRecoveryHelp')}</p>${(syncMeta?.recovery||[]).map((snapshot,i)=>button(t('exportRecovery')+' · '+new Date(snapshot.at).toLocaleString('en'),'export-recovery',`data-index="${i}"`,'outline full')).join('')||`<p class="muted small">${t('noRecoveryYet')}</p>`}</details></section>`;}
 async function bindAccount(){
